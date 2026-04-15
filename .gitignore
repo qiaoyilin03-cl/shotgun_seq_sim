@@ -1,0 +1,28 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Mac OS specific
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Temporary files and directories
+tmp/
+temp/
+*.tmp
+*.swp
+*~
+
+# Virtual environments
+venv/
+env/
+.env/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IDEs
+.vscode/
+.idea/

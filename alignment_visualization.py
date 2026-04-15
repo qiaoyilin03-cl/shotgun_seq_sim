@@ -1,0 +1,357 @@
+import pysam
+import random
+import matplotlib.pyplot as plt
+import os
+import numpy as np
+from matplotlib.collections import LineCollection
+import matplotlib.lines as mlines
+
+
+def create_alignment_bam(genome, reads, bam_filename, max_mismatch=2):
+    """
+    More realistic alignment:
+    - allows mismatches
+    - handles multiple matches (repeats)
+    - simulates mapping ambiguity
+    - drops low-quality mappings
+    """
+    header = {
+        'HD': {'VN': '1.0'},
+        'SQ': [{'LN': len(genome), 'SN': 'ref'}]
+    }
+
+    with pysam.AlignmentFile(bam_filename, "wb", header=header) as out_bam:
+        for i, read_seq in enumerate(reads):
+
+           
+            positions = find_with_mismatches(genome, read_seq, max_mismatch)
+
+            if not positions:
+                continue  # unmapped read
+
+            # Simulate mapping quality
+            if len(positions) == 1:
+                mapq = 60
+            elif len(positions) <= 5:
+                mapq = 20
+            else:
+                mapq = 0  # highly repetitive
+
+            # Drop very ambiguous reads (realistic)
+            if mapq == 0 and random.random() < 0.9:
+                continue
+            if mapq == 20 and random.random() < 0.8:
+                continue
+
+            # Choose one mapping (like real aligners do)
+            pos = random.choice(positions[:5])
+
+            a = pysam.AlignedSegment()
+            a.query_name = f"read_{i}"
+            a.query_sequence = read_seq
+            a.reference_id = 0
+            a.reference_start = pos
+            a.mapping_quality = mapq
+            a.cigar = ((0, len(read_seq)),)
+
+            out_bam.write(a)
+
+def get_contigs(reads_data):
+    """
+    Identifies 'Contigs' by finding the union of all overlapping reads.
+    A contig represents a continuous stretch of DNA reconstructed from shorter fragments.
+    In an ideal Poisson model, the number of contigs is expected to be $N e^{-\alpha}$.
+    
+    Args:
+        reads_data (list): A list of dictionaries containing 'start' and 'end' positions of reads.
+        
+    Returns:
+        list: A list of (start, end) tuples representing the merged contig boundaries.
+    """
+    if not reads_data:
+        return []
+    
+    # Sort reads by start position
+    sorted_reads = sorted(reads_data, key=lambda x: x['start'])
+    
+    contigs = []
+    if not sorted_reads:
+        return []
+        
+    current_start = sorted_reads[0]['start']
+    current_end = sorted_reads[0]['end']
+    
+    for i in range(1, len(sorted_reads)):
+        next_start = sorted_reads[i]['start']
+        next_end = sorted_reads[i]['end']
+        
+        if next_start <= current_end:
+            # Overlap, extend the current contig
+            current_end = max(current_end, next_end)
+        else:
+            # Gap, start a new contig
+            contigs.append((current_start, current_end))
+            current_start = next_start
+            current_end = next_end
+            
+    contigs.append((current_start, current_end))
+    return contigs
+
+def get_coverage(genome_length, reads_data):
+    """
+    Computes the read depth (coverage) at each position in the genome.
+    The average coverage across the genome is theoretically $\alpha = NL/G$.
+    """
+    coverage = [0] * genome_length
+    for r in reads_data:
+        for pos in range(r['start'], r['end']):
+            if 0 <= pos < genome_length:
+                coverage[pos] += 1
+    return coverage
+
+def find_with_mismatches(genome, read, max_mismatch=2):
+    positions = []
+    L = len(read)
+    
+    for i in range(len(genome) - L + 1):
+        segment = genome[i:i+L]
+        mismatches = sum(1 for a, b in zip(segment, read) if a != b)
+        
+        if mismatches <= max_mismatch:
+            positions.append(i)
+    
+    return positions
+
+def visualize_alignment(genome, reads, output_png, repeat_target=None):
+    """
+    The main pipeline for creating and plotting a read alignment with contig discovery.
+    Produces a two-panel visualization:
+    1. Top panel: Individual reads and merged contigs.
+    2. Bottom panel: Read coverage (depth) track.
+    
+    Args:
+        genome (str): The reference genome sequence ($G$).
+        reads (list): The list of sampled reads ($N$).
+        output_png (str): The filename for the resulting alignment plot.
+        repeat_target (str, optional): Target sequence used for repeat detection.
+    """
+    bam_filename = "temp_alignment.bam"
+    create_alignment_bam(genome, reads, bam_filename)
+    
+    with pysam.AlignmentFile(bam_filename, "rb") as samfile:
+        reads_data = []
+        for read in samfile.fetch(until_eof=True):
+            reads_data.append({
+                'start': read.reference_start,
+                'end': read.reference_end,
+                'seq': read.query_sequence,
+                'mapq': read.mapping_quality
+            })
+
+    # Compute contigs (unions of overlapping reads)
+    contigs = get_contigs(reads_data)
+    
+    # Compute coverage
+    genome_length = len(genome)
+    coverage = get_coverage(genome_length, reads_data)
+
+    # Use a two-panel layout: top for alignment, bottom for coverage graph
+    fig, (ax_main, ax_cov) = plt.subplots(2, 1, figsize=(12, 10), gridspec_kw={'height_ratios': [3, 1]}, sharex=True)
+    
+    # 1. Plot the Reference (Ground Truth)
+    ax_main.axhline(y=0, color='black', linewidth=4, label='Reference Genome')
+    ax_main.text(-2, 0, "Reference", verticalalignment='center', fontweight='bold')
+    
+    # 2. Plot Contigs (clean structural view)
+    plot_contigs(
+        ax_main,
+        contigs,
+        y=1,
+        show_labels=True,
+        show_gaps=True
+    )
+    ax_main.text(-2, 1, "Contigs", color='red', verticalalignment='center', fontweight='bold', fontsize=10)
+
+    # 3. Plot Individual Reads colored by Mapping Quality
+    for i, r in enumerate(reads_data):
+        y_pos = -(i + 1)
+        # Unique (MAPQ 60) -> blue, Multimapper (MAPQ 20) -> orange, Low quality (MAPQ 0) -> gray
+        if r['mapq'] >= 60:
+            color = 'steelblue'
+        elif r['mapq'] >= 20:
+            color = 'orange'
+        else:
+            color = 'lightgray'
+        
+        ax_main.plot([r['start'], r['end']], [y_pos, y_pos], color=color, linewidth=2, alpha=0.8)
+
+    ax_main.set_xlim(-5, genome_length + 5)
+    ax_main.set_ylim(-len(reads_data) - 5, 3)
+    ax_main.set_title('Shotgun Simulation: Realistic Alignment and Assembly')
+    
+    # Legend for Mapping Quality & Elements
+    unique_line = mlines.Line2D([], [], color='steelblue', linewidth=2, label='Unique (MAPQ 60)')
+    multi_line = mlines.Line2D([], [], color='orange', linewidth=2, label='Multimapper (MAPQ 20)')
+    lowq_line = mlines.Line2D([], [], color='lightgray', linewidth=2, label='Ambiguous (MAPQ 0)')
+    contig_line = mlines.Line2D([], [], color='red', linewidth=8, label='Contig (Assembled)')
+    ref_line = mlines.Line2D([], [], color='black', linewidth=4, label='Reference Genome')
+    
+    ax_main.legend(handles=[ref_line, contig_line, unique_line, multi_line, lowq_line], 
+                   loc='upper right', fontsize='small')
+    ax_main.set_yticks([])
+    
+    # 4. Plot the Coverage Graph (Depth of reads)
+    x_positions = range(genome_length)
+    ax_cov.fill_between(x_positions, coverage, color='skyblue', alpha=0.3)
+    ax_cov.plot(x_positions, coverage, color='steelblue', linewidth=1.5)
+    ax_cov.set_xlabel('Position in Genome (bp)')
+    ax_cov.set_ylabel('Read Depth')
+    ax_cov.set_title('Read Coverage Track')
+    ax_cov.grid(True, linestyle='--', alpha=0.6)
+
+    plt.tight_layout()
+    plt.savefig(output_png)
+    print(f"Realistic alignment and contig plot saved to {output_png}")
+
+    # Cleanup
+    if os.path.exists(bam_filename):
+        os.remove(bam_filename)
+
+
+def plot_contigs_stacked(ax, contigs, base_y=1, spacing=0.5, color='red'):
+    for i, (start, end) in enumerate(contigs):
+        y = base_y + i * spacing
+        ax.plot(
+            [start, end],
+            [y, y],
+            color=color,
+            linewidth=6,
+            solid_capstyle='butt'
+        )
+        
+def plot_contigs(ax, contigs, y=1, height=0.6, color='red', 
+                 show_labels=True, show_gaps=False):
+    """
+    Plots contigs as solid blocks on a given matplotlib axis.
+
+    Args:
+        ax: matplotlib axis
+        contigs (list): list of (start, end) tuples
+        y (float): vertical position of contigs
+        height (float): thickness of contig bars
+        color (str): contig color
+        show_labels (bool): label each contig (C0, C1, ...)
+        show_gaps (bool): draw dashed lines between contigs
+    """
+    if not contigs:
+        return
+
+    # Plot contigs as thick horizontal bars
+    for i, (start, end) in enumerate(contigs):
+        ax.plot(
+            [start, end],
+            [y, y],
+            color=color,
+            linewidth=8,
+            solid_capstyle='butt'
+        )
+
+        if show_labels:
+            ax.text(
+                (start + end) / 2,
+                y + height,
+                f"C{i}",
+                ha='center',
+                fontsize=8,
+                color=color
+            )
+
+
+    if show_gaps and len(contigs) > 1:
+        for i in range(len(contigs) - 1):
+            gap_start = contigs[i][1]
+            gap_end = contigs[i + 1][0]
+
+            ax.plot(
+                [gap_start, gap_end],
+                [y, y],
+                color='gray',
+                linestyle='dashed',
+                linewidth=2
+            )
+    
+def plot_lander_waterman_sweep(genome_len, read_len, sweep_data_nr, sweep_data_r, output_png):
+    """
+    Plots the Lander-Waterman sweep comparing theoretical expectations to empirical results.
+    
+    Args:
+        genome_len (int): Genome size $G$.
+        read_len (int): Read length $L$.
+        sweep_data_nr (list): Tuples of (alpha, num_contigs) for non-repeat genome.
+        sweep_data_r (list): Tuples of (alpha, num_contigs) for repeat genome.
+        output_png (str): Output filename.
+    """
+    alphas_nr = [d[0] for d in sweep_data_nr]
+    contigs_nr = [d[1] for d in sweep_data_nr]
+    alphas_r = [d[0] for d in sweep_data_r]
+    contigs_r = [d[1] for d in sweep_data_r]
+    
+    # Theory curve: E[contigs] = (G/L) * alpha * e^(-alpha)
+    alpha_range = np.linspace(0, max(max(alphas_nr), max(alphas_r), 6), 100)
+    theory_y = (genome_len / read_len) * alpha_range * np.exp(-alpha_range)
+    
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6), sharey=True)
+    fig.suptitle(r"Lander-Waterman Model: $E[\# \text{contigs}] = N e^{-\alpha}$", fontsize=16)
+    
+    # Panel 1: No Repeats
+    ax1.plot(alpha_range, theory_y, '--', color='gray', label=r"Theory: $(G/L) \alpha e^{-\alpha}$")
+    ax1.stem(alphas_nr, contigs_nr, linefmt='lightblue', markerfmt='C0o', basefmt=" ", label="Empirical (No repeats)")
+    # Overlay larger dots for better visibility
+    ax1.scatter(alphas_nr, contigs_nr, color='C0', s=50, zorder=3)
+    ax1.set_title("Lander-Waterman sweep — No repeats", fontweight='bold')
+    ax1.set_xlabel(r"Read density $\alpha = NL/G$")
+    ax1.set_ylabel("Number of contigs")
+    ax1.legend()
+    ax1.grid(True, linestyle='--', alpha=0.3)
+    
+    # Annotation for typical run
+    typical_alpha = 3.25
+    typical_theory = (genome_len / read_len) * typical_alpha * np.exp(-typical_alpha)
+    ax1.annotate(f"α = {typical_alpha}\n(typical run)", xy=(typical_alpha, typical_theory), 
+                 xytext=(typical_alpha + 0.5, typical_theory + 2),
+                 arrowprops=dict(arrowstyle="->", connectionstyle="arc3,rad=.2"),
+                 fontsize=9, color='gray')
+
+    # Panel 2: With Repeats
+    ax2.plot(alpha_range, theory_y, '--', color='gray', label=r"Theory: $(G/L) \alpha e^{-\alpha}$")
+    ax2.stem(alphas_r, contigs_r, linefmt='mistyrose', markerfmt='C3o', basefmt=" ", label="Empirical (With repeats)")
+    # Overlay larger dots for better visibility
+    ax2.scatter(alphas_r, contigs_r, color='C3', s=50, zorder=3)
+    ax2.set_title("Lander-Waterman sweep — With repeats", fontweight='bold')
+    ax2.set_xlabel(r"Read density $\alpha = NL/G$")
+    ax2.legend()
+    ax2.grid(True, linestyle='--', alpha=0.3)
+    
+    # Annotation for typical run
+    ax2.annotate(f"α = {typical_alpha}\n(typical run)", xy=(typical_alpha, typical_theory), 
+                 xytext=(typical_alpha + 0.5, typical_theory + 2),
+                 arrowprops=dict(arrowstyle="->", connectionstyle="arc3,rad=.2"),
+                 fontsize=9, color='gray')
+    
+    # Warning box for repeats
+    props = dict(boxstyle='round', facecolor='white', alpha=0.5, edgecolor='red')
+    ax2.text(0.95, 0.95, "Dots above the curve:\nPoisson assumption violated\nby repeat structure", 
+             transform=ax2.transAxes, fontsize=9, verticalalignment='top', horizontalalignment='right', 
+             bbox=props, color='red')
+
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    plt.savefig(output_png)
+    print(f"Lander-Waterman sweep plot saved to {output_png}")
+
+
+if __name__ == "__main__":
+    # Test block
+    from shortgun_simulation import generate_genome, generate_reads
+    g = generate_genome(100)
+    r = generate_reads(g, 10, 10, 30)
+    visualize_alignment(g, r, "test_contig_plot.png")
