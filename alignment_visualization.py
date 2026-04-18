@@ -21,7 +21,8 @@ def create_alignment_bam(genome, reads, bam_filename, max_mismatch=2):
     }
 
     with pysam.AlignmentFile(bam_filename, "wb", header=header) as out_bam:
-        for i, read_seq in enumerate(reads):
+        for i, read_item in enumerate(reads):
+            read_seq = read_item[1] if isinstance(read_item, tuple) else read_item
 
            
             positions = find_with_mismatches(genome, read_seq, max_mismatch)

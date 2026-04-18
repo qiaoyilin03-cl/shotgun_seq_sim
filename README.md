@@ -45,21 +45,21 @@ python alignment_visualization.py
 
 ## Configuration & Scenarios
 
-### Scenario 1 — Alignment Visualization (MAPQ Colors)
+### Scenario 1 — Human Mitochondrial Genome Assembly
 
 **Function**: `run_alignment_comparison()`
-Focuses on **mapping quality** and read ambiguity under realistic repeat conditions.
+Simulates a realistic biological scenario based on human mitochondrial DNA (~16.5 kb), which has high unique density and lacks large transpositional elements, focusing instead on hypervariable regions and tandem repeats.
 
 | Parameter | Value |
 |-----------|-------|
-| Genome length ($G$) | 4 000 bp |
-| Read length range ($L$) | 50 – 100 bp |
-| Number of reads ($N$) | 600 |
-| SNP rate | 0.005 |
-| Repeat sizes | LINE = 1 000 bp, SINE = 300 bp, LTR = 500 bp, DNA = 300 bp |
-| Repeat weights | Default (LINE 20%, SINE 13%, LTR 8%, DNA 3%, Tandem 5%, Unique 51%) |
+| Genome length ($G$) | 16 569 bp |
+| Read length range ($L$) | 100 – 150 bp |
+| Number of reads ($N$) | 2 500 (~18x coverage) |
+| SNP rate | 0.01 |
+| Repeat sizes | HVR = 150 bp |
+| Repeat weights | HVR 3%, Tandem 5%, Unique 92% |
 
-**Visualization** highlights MAPQ scores:
+**Visualization** highlights MAPQ scores in simulated realistic conditions:
 - **Steelblue** — Unique reads (MAPQ 60)
 - **Orange** — Multi-mapped reads (MAPQ 20, ≤ 5 matches)
 - **Light Gray** — Ambiguous/repetitive reads (MAPQ 0)
@@ -68,23 +68,41 @@ Focuses on **mapping quality** and read ambiguity under realistic repeat conditi
 
 ---
 
-### Scenario 2 — Contig Structure (Fragmentation)
+### Scenario 2 — Contig Structure Comparison (Fragmentation)
 
 **Function**: `run_assembly_comparison()`
-Demonstrates how **long, frequent repeats** break assembly continuity and fragment contigs.
+Demonstrates how **long, frequent repeats** in the human nuclear genome (where nearly half the genome is repetitive) break assembly continuity and fragment contigs.
 
 | Parameter | Value |
 |-----------|-------|
-| Genome length ($G$) | 2 000 bp |
+| Genome length ($G$) | 4 000 bp |
 | Read length range ($L$) | 50 – 100 bp |
-| Number of reads ($N$) | 150 |
+| Number of reads ($N$) | 600 (~11x coverage) |
 | SNP rate | 0.005 |
-| Repeat sizes | LINE = 400 bp, SINE = 100 bp, LTR = 200 bp, DNA = 150 bp |
-| Repeat weights | LINE 40%, SINE 30%, LTR 10%, DNA 10%, Tandem 0%, Unique 10% |
+| Repeat sizes | LINE = 1 000 bp, SINE = 300 bp, LTR = 500 bp, DNA = 300 bp |
+| Repeat weights | LINE 20%, SINE 13%, LTR 8%, DNA 3%, Unique 55% |
 
 **Visualization**: Shows fragmented **red contig blocks**. Gaps typically appear within or at the boundaries of long repeats where unique overlaps cannot be established.
 
 **Outputs**: `alignment_nr_scenario2.png`, `alignment_r_scenario2.png`, `contigs_s2_nr.png`, `contigs_s2_r.png`
+
+---
+
+### Scenario 3 — Read Length Sweep Analysis
+
+**Function**: `run_read_length_sweep()`
+Sweeps read lengths to demonstrate how longer reads bridge repeats and resolve fragmentation, while maintaining a constant coverage depth of 30x on a repeat-rich nuclear genome segment.
+
+| Parameter | Value |
+|-----------|-------|
+| Genome length ($G$) | 4 000 bp |
+| Target Coverage | 30x |
+| Read Length Ranges | 50-75, 75-100, 150-200, 250-300, 350-400, 750-800 bp |
+| Trials | 5 trials per read length |
+
+**Visualization**: Shows the "stair-step" reduction in contig fragmentation as average read lengths sequentially exceed the sizes of SINEs (300 bp), LTRs (400 bp), and truncated LINEs (800 bp).
+
+**Outputs**: `read_length_sweep_s2.png`
 
 ---
 

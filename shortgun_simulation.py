@@ -93,7 +93,7 @@ def generate_genome_with_repeats(length, snp_rate=0.01, repeat_sizes=None, weigh
 
 
 # Generate shotgun reads
-def generate_reads(genome, num_reads, min_len, max_len):
+def generate_reads_theory(genome, num_reads, min_len, max_len):
     """
     Simulates shotgun sequencing by generating random reads from a given genome.
     """
@@ -107,6 +107,24 @@ def generate_reads(genome, num_reads, min_len, max_len):
         reads.append(read)
     
     return reads
+
+def generate_reads(genome, num_fragments, mean_len, std_len):
+    """
+    fragmentation
+    """
+    fragments = []
+    genome_len = len(genome)
+    
+    for _ in range(num_fragments):
+        frag_len = max(1, int(random.gauss(mean_len, std_len)))
+        if frag_len >= genome_len:
+            continue
+        
+        start = random.randint(0, genome_len - frag_len)
+        fragment = genome[start:start + frag_len]
+        fragments.append((start, fragment))
+    
+    return fragments
 
 def display_simulation_results(label, genome, reads, bam_filename, output_contig_png):
     """
@@ -141,7 +159,10 @@ def display_simulation_results(label, genome, reads, bam_filename, output_contig
         print(f"Average contig length: {sum(lengths)/len(lengths):.2f} bp")
     
     # Theoretical expectations
-    L = max(len(r) for r in reads) if reads else 0
+    if reads:
+        L = max(len(r[1]) if isinstance(r, tuple) else len(r) for r in reads)
+    else:
+        L = 0
     G = len(genome)
     N = len(reads)
     alpha = compute_alpha(N, L, G)
@@ -162,40 +183,48 @@ def display_simulation_results(label, genome, reads, bam_filename, output_contig
 
 def run_alignment_comparison():
     """
-    Scenario 1: Highlighting Mapping Quality (MAPQ Colors)
-    - High coverage (N=500).
-    - Identical repeats (snp_rate=0) and short elements (80bp).
+    Scenario 1: Human Mitochondrial Genome Assembly
+    - Realistic length (~16,569 bp).
+    - High unique density, small tandem repeats & D-loop variations.
+    - Standard Illumina read lengths (100-150bp).
     """
-    print("\n>>> Scenario 1: Alignment Visualization (MAPQ Colors) <<<")
-    G = 4000
-    L_min, L_max = 50, 100
-    N = 600
+    print("\n>>> Scenario 1: Human Mitochondrial Genome Assembly <<<")
+    G = 16569
+    L_min, L_max = 100, 150
+    N = 2500  # ~18x coverage to balance visibility and assembly quality
     
     # 1. Non-repeat genome
     genome_nr = generate_genome(G)
     reads_nr = generate_reads(genome_nr, N, L_min, L_max)
     visualize_alignment(genome_nr, reads_nr, "alignment_nr_scenario1.png")
-    display_simulation_results("S1: Non-Repeat Alignment", genome_nr, reads_nr, 
+    display_simulation_results("S1: Non-Repeat Alignment (mtDNA size)", genome_nr, reads_nr, 
                                "temp_s1_nr.bam", "contigs_s1_nr.png")
     
-    # 2. Repeat genome (realistic repeats)
-    repeat_sizes = {"LINE": 1000, "SINE": 300, "LTR": 500, "DNA": 300}
-    genome_r = generate_genome_with_repeats(G, snp_rate=0.005, repeat_sizes=repeat_sizes)
+    # 2. Repeat genome (mtDNA realistic repeats)
+    # Mitochondria lack LINEs/SINEs/LTRs; they have hypervariable regions (HVR) and tandem repeats
+    repeat_sizes = {"HVR": 150}
+    weights_r = [
+        ("HVR", 0.03),      # ~3% Hypervariable region-like repeats
+        ("TANDEM", 0.05),   # ~5% Short tandem repeats (VNTRs)
+        ("UNIQUE", 0.92)    # ~92% Unique coding sequences
+    ]
+    genome_r = generate_genome_with_repeats(G, snp_rate=0.01, repeat_sizes=repeat_sizes, weights=weights_r)
     reads_r = generate_reads(genome_r, N, L_min, L_max)
     visualize_alignment(genome_r, reads_r, "alignment_r_scenario1.png")
-    display_simulation_results("S1: Repeat Alignment (MAPQ focused)", genome_r, reads_r, 
+    display_simulation_results("S1: Realistic mtDNA Assembly", genome_r, reads_r, 
                                "temp_s1_r.bam", "contigs_s1_r.png")
 
 def run_assembly_comparison():
     """
-    Scenario 2: Highlighting Contig Fragmentation (Gaps)
-    - Intermediate coverage (N=150).
-    - Long repeat elements (400-800bp).
+    Scenario 2: Contig Structure Comparison (Fragmentation)
+    - Human genome segment (4000 bp).
+    - Nuclear human repeats (approx 45-50% repetitive): SINE (Alu ~300bp), LINE (truncated ~800bp), LTR, DNA.
+    - Standard coverage: ~30x (N=1000 reads, lengths 100-150bp).
     """
     print("\n>>> Scenario 2: Contig Structure Comparison (Fragmentation) <<<")
-    G = 2000
+    G = 4000
     L_min, L_max = 50, 100
-    N = 150
+    N = 600
     
     # 1. Non-repeat genome
     genome_nr = generate_genome(G)
@@ -204,17 +233,16 @@ def run_assembly_comparison():
     display_simulation_results("S2: Non-Repeat Assembly", genome_nr, reads_nr, 
                                "temp_s2_nr.bam", "contigs_s2_nr.png")
     
-    # 2. Repeat genome (large elements + very high frequency)
-    repeat_sizes = {"LINE": 400, "SINE": 100, "LTR": 200, "DNA": 150}
+    # 2. Repeat genome (Nuclear human genome proportions ~45% repeat)
+    repeat_sizes = {"LINE": 1000, "SINE": 300, "LTR": 500, "DNA": 300}
     weights_r = [
-        ("LINE", 0.40),
-        ("SINE", 0.30),
-        ("LTR", 0.10),
-        ("DNA", 0.10),
-        ("TANDEM", 0.00),
-        ("UNIQUE", 0.10)
+        ("LINE", 0.20),
+        ("SINE", 0.13),
+        ("LTR", 0.08),
+        ("DNA", 0.03),
+        ("UNIQUE", 0.55)
     ]
-    genome_r = generate_genome_with_repeats(G, snp_rate=0.005, repeat_sizes=None, weights=weights_r)
+    genome_r = generate_genome_with_repeats(G, snp_rate=0.005, repeat_sizes=repeat_sizes, weights=weights_r)
     reads_r = generate_reads(genome_r, N, L_min, L_max)
     visualize_alignment(genome_r, reads_r, "alignment_r_scenario2.png")
     display_simulation_results("S2: Repeat Assembly (Fragmentation focused)", genome_r, reads_r, 
@@ -247,7 +275,7 @@ def run_lander_waterman_sweep(genome_r, output_png, label, num_trials=10):
         
         for trial in range(num_trials):
             # Empirical NR
-            reads_nr = generate_reads(genome_nr, N, L_min, L_max)
+            reads_nr = generate_reads_theory(genome_nr, N, L_min, L_max)
             bam_nr = f"temp_sweep_nr_{alpha}_{trial}.bam"
             create_alignment_bam(genome_nr, reads_nr, bam_nr)
             reads_data_nr = []
@@ -259,7 +287,7 @@ def run_lander_waterman_sweep(genome_r, output_png, label, num_trials=10):
             trial_counts_nr.append(len(contigs_nr))
             
             # Empirical R
-            reads_r = generate_reads(genome_r, N, L_min, L_max)
+            reads_r = generate_reads_theory(genome_r, N, L_min, L_max)
             bam_r = f"temp_sweep_r_{alpha}_{trial}.bam"
             create_alignment_bam(genome_r, reads_r, bam_r)
             reads_data_r = []
@@ -279,26 +307,96 @@ def run_lander_waterman_sweep(genome_r, output_png, label, num_trials=10):
 
     plot_lander_waterman_sweep(G, L_mean, sweep_data_nr, sweep_data_r, output_png)
 
+def run_read_length_sweep(genome_r, target_coverage, output_png, label, num_trials=3):
+    """
+    Sweeps read lengths to demonstrate how longer reads bridge repeats
+    and resolve fragmentation, while maintaining constant coverage depth (~30x).
+    """
+    print(f"\n>>> Running Read Length Sweep Analysis: {label} ({num_trials} trials) <<<")
+    G = len(genome_r)
+    
+    length_ranges = [
+        (50, 75),       # shorter than all repeats
+        (75, 100),     # standard Illumina
+        (150, 200),     # approaching SINE size (300)
+        (250, 300),     # bridges SINEs (300) and DNA (200)
+        (350, 400),     # bridges LTRs (400)
+        (750, 800),     # bridges truncated LINEs (800)
+    ]
+    
+    results = []
+    
+    for L_min, L_max in length_ranges:
+        L_mean = (L_min + L_max) / 2
+        # Calculate N to maintain constant coverage
+        N = int((target_coverage * G) / L_mean)
+        
+        trial_counts = []
+        for trial in range(num_trials):
+            reads = generate_reads_theory(genome_r, N, L_min, L_max)
+            bam_file = f"temp_len_sweep_{L_mean}_{trial}.bam"
+            create_alignment_bam(genome_r, reads, bam_file)
+            
+            reads_data = []
+            if os.path.exists(bam_file):
+                with pysam.AlignmentFile(bam_file, "rb") as sam:
+                    for r in sam.fetch(until_eof=True):
+                        reads_data.append({'start': r.reference_start, 'end': r.reference_end})
+                os.remove(bam_file)
+                
+            contigs = get_contigs(reads_data)
+            trial_counts.append(len(contigs))
+            
+        avg_contigs = sum(trial_counts) / num_trials
+        results.append((L_mean, avg_contigs))
+        print(f"Read Length {L_mean:.0f}bp (N={N}): Average contigs = {avg_contigs:.2f}")
+
+    # Visualization
+    l_means = [r[0] for r in results]
+    contigs = [r[1] for r in results]
+    
+    plt.figure(figsize=(10, 6))
+    plt.plot(l_means, contigs, marker='o', linewidth=2, color='darkorange')
+    plt.axvline(x=300, color='gray', linestyle='--', label='SINE (Alu) size (300bp)')
+    plt.axvline(x=400, color='gray', linestyle=':', label='LTR size (400bp)')
+    plt.axvline(x=800, color='gray', linestyle='-.', label='LINE size (800bp)')
+    
+    plt.title(f"Impact of Read Length on Genome Assembly\n(Constant {target_coverage}x Coverage)")
+    plt.xlabel("Mean Read Length (bp)")
+    plt.ylabel("Number of Contigs (Fragmentation)")
+    plt.grid(True, alpha=0.3)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(output_png)
+    print(f"Read length sweep plot saved to {output_png}")
+
 def main():
-    """Executes the comparison scenarios and the Lander-Waterman sweeps."""
-    run_alignment_comparison()
-    run_assembly_comparison()
+    """Executes the comparison scenarios and the sweeps."""
+    # run_alignment_comparison()
+    # 1. Sweep for Scenario 1 (Realistic Human mtDNA)
+    # G_s1 = 16569
+    # repeat_sizes_s1 = {"HVR": 150}
+    # weights_s1 = [("HVR", 0.03), ("TANDEM", 0.05), ("UNIQUE", 0.92)]
+    # genome_s1 = generate_genome_with_repeats(G_s1, snp_rate=0.01, repeat_sizes=repeat_sizes_s1, weights=weights_s1)
+    # run_lander_waterman_sweep(genome_s1, "lander_waterman_sweep_s1.png", "Scenario 1 (Human mtDNA)", num_trials=3)
     
-    # 1. Sweep for Scenario 1 (Realistic repeats)
-    G_s1 = 4000
-    repeat_sizes_s1 = {"LINE": 1000, "SINE": 300, "LTR": 500, "DNA": 300}
-    genome_s1 = generate_genome_with_repeats(G_s1, snp_rate=0.005, repeat_sizes=repeat_sizes_s1)
-    run_lander_waterman_sweep(genome_s1, "lander_waterman_sweep_s1.png", "Scenario 1 (Realistic Repeats)", num_trials=3)
+    # run_assembly_comparison()
     
-    # 2. Sweep for Scenario 2 (Long slightly mutated repeats)
-    G_s2 = 2000
-    repeat_sizes_s2 = {"LINE": 400, "SINE": 100, "LTR": 200, "DNA": 150}
+    
+    # # 2. Sweep for Scenario 2 (Human Nuclear Genome)
+    G_s2 = 4000
+    repeat_sizes_s2 = {"LINE": 1000, "SINE": 300, "LTR": 500, "DNA": 300}
     weights_s2 = [
-        ("LINE", 0.40), ("SINE", 0.30), ("LTR", 0.10), 
-        ("DNA", 0.10), ("TANDEM", 0.00), ("UNIQUE", 0.10)
+        ("LINE", 0.20), ("SINE", 0.13), ("LTR", 0.08), 
+        ("DNA", 0.03), ("UNIQUE", 0.55)
     ]
     genome_s2 = generate_genome_with_repeats(G_s2, snp_rate=0.005, repeat_sizes=repeat_sizes_s2, weights=weights_s2)
-    run_lander_waterman_sweep(genome_s2, "lander_waterman_sweep_s2.png", "Scenario 2 (Long Repeats)", num_trials=5)
+    # run_lander_waterman_sweep(genome_s2, "lander_waterman_sweep_s2.png", "Scenario 2 (Human Nuclear)", num_trials=5)
+    
+    # # 3. Read Length Sweep Analysis (Scenario 2 Extension)
+    run_read_length_sweep(genome_s2, target_coverage=30, output_png="read_length_sweep_s2.png", label="Scenario 2 Length Impact", num_trials=5)
+
+
 
 if __name__ == "__main__":
     main()
