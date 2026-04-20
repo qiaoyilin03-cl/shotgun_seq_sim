@@ -1,7 +1,6 @@
 import random
 import os
 import pysam
-import numpy as np
 import matplotlib.pyplot as plt
 from overlap import build_overlap_graph, draw_graph
 from alignment_visualization import (
@@ -301,17 +300,10 @@ def run_lander_waterman_sweep(genome_r, output_png, label, num_trials=10):
             
         mean_nr = sum(trial_counts_nr) / num_trials
         mean_r = sum(trial_counts_r) / num_trials
+        sweep_data_nr.append((alpha, mean_nr))
+        sweep_data_r.append((alpha, mean_r))
         
-        std_nr = np.std(trial_counts_nr) if num_trials > 1 else 0
-        ci_nr = 1.96 * std_nr / np.sqrt(num_trials)
-        
-        std_r = np.std(trial_counts_r) if num_trials > 1 else 0
-        ci_r = 1.96 * std_r / np.sqrt(num_trials)
-        
-        sweep_data_nr.append((alpha, mean_nr, ci_nr))
-        sweep_data_r.append((alpha, mean_r, ci_r))
-        
-        print(f"Alpha {alpha:.2f}: NR_mean={mean_nr:.2f}±{ci_nr:.2f}, R_mean={mean_r:.2f}±{ci_r:.2f}")
+        print(f"Alpha {alpha:.2f}: NR_mean={mean_nr:.2f}, R_mean={mean_r:.2f}")
 
     plot_lander_waterman_sweep(G, L_mean, sweep_data_nr, sweep_data_r, output_png)
 
@@ -356,24 +348,30 @@ def run_read_length_sweep(genome_r, target_coverage, output_png, label, num_tria
             trial_counts.append(len(contigs))
             
         avg_contigs = sum(trial_counts) / num_trials
-        std_contigs = np.std(trial_counts) if num_trials > 1 else 0
-        results.append((L_mean, avg_contigs, std_contigs))
-        print(f"Read Length {L_mean:.0f}bp (N={N}): Average contigs = {avg_contigs:.2f} ± {std_contigs:.2f}")
+        results.append((L_mean, avg_contigs, trial_counts))
+        print(f"Read Length {L_mean:.0f}bp (N={N}): Average contigs = {avg_contigs:.2f}")
 
     # Visualization
+    import numpy as np
     l_means = [r[0] for r in results]
     contigs = [r[1] for r in results]
-    stds = [r[2] for r in results]
+    
+    ci_lower = []
+    ci_upper = []
+    for r in results:
+        counts = r[2]
+        std_dev = np.std(counts, ddof=1) if len(counts) > 1 else 0
+        se = std_dev / np.sqrt(len(counts))
+        margin = 1.96 * se
+        ci_lower.append(max(0, r[1] - margin))
+        ci_upper.append(r[1] + margin)
     
     plt.figure(figsize=(10, 6))
-    plt.plot(l_means, contigs, marker='o', linewidth=2, color='darkorange', label='Average contigs')
-    plt.fill_between(l_means, 
-                     [max(0, c - s) for c, s in zip(contigs, stds)], 
-                     [c + s for c, s in zip(contigs, stds)], 
-                     color='darkorange', alpha=0.2, label='±1 Std Dev')
-    plt.axvline(x=300, color='gray', linestyle='--', label='SINE (Alu) size (300bp)')
-    plt.axvline(x=400, color='gray', linestyle=':', label='LTR size (400bp)')
-    plt.axvline(x=800, color='gray', linestyle='-.', label='LINE size (800bp)')
+    plt.fill_between(l_means, ci_lower, ci_upper, color='darkorange', alpha=0.2, label='95% CI')
+    plt.plot(l_means, contigs, marker='o', linewidth=2, color='darkorange', label='Average Contigs')
+    # plt.axvline(x=300, color='gray', linestyle='--', label='SINE (Alu) size (300bp)')
+    # plt.axvline(x=400, color='gray', linestyle=':', label='LTR size (400bp)')
+    # plt.axvline(x=800, color='gray', linestyle='-.', label='LINE size (800bp)')
     
     plt.title(f"Impact of Read Length on Genome Assembly\n(Constant {target_coverage}x Coverage)")
     plt.xlabel("Mean Read Length (bp)")
@@ -386,10 +384,6 @@ def run_read_length_sweep(genome_r, target_coverage, output_png, label, num_tria
 
 def main():
     """Executes the comparison scenarios and the sweeps."""
-    # Set random seeds for reproducibility across runs
-    random.seed(42)
-    np.random.seed(42)
-    
     # run_alignment_comparison()
     # 1. Sweep for Scenario 1 (Realistic Human mtDNA)
     # G_s1 = 16569
@@ -409,10 +403,10 @@ def main():
         ("DNA", 0.03), ("UNIQUE", 0.55)
     ]
     genome_s2 = generate_genome_with_repeats(G_s2, snp_rate=0.005, repeat_sizes=repeat_sizes_s2, weights=weights_s2)
-    run_lander_waterman_sweep(genome_s2, "lander_waterman_sweep_s2.png", "Scenario 2 (Human Nuclear)", num_trials=5)
+    # run_lander_waterman_sweep(genome_s2, "lander_waterman_sweep_s2.png", "Scenario 2 (Human Nuclear)", num_trials=5)
     
     # # 3. Read Length Sweep Analysis (Scenario 2 Extension)
-    run_read_length_sweep(genome_s2, target_coverage=30, output_png="read_length_sweep_s2.png", label="Scenario 2 Length Impact", num_trials=5)
+    run_read_length_sweep(genome_s2, target_coverage=11.25, output_png="read_length_sweep_s2.png", label="Scenario 2 Length Impact", num_trials=5)
 
 
 

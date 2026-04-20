@@ -294,11 +294,8 @@ def plot_lander_waterman_sweep(genome_len, read_len, sweep_data_nr, sweep_data_r
     """
     alphas_nr = [d[0] for d in sweep_data_nr]
     contigs_nr = [d[1] for d in sweep_data_nr]
-    ci_nr = [d[2] if len(d) > 2 else 0 for d in sweep_data_nr]
-    
     alphas_r = [d[0] for d in sweep_data_r]
     contigs_r = [d[1] for d in sweep_data_r]
-    ci_r = [d[2] if len(d) > 2 else 0 for d in sweep_data_r]
     
     # Theory curve: E[contigs] = (G/L) * alpha * e^(-alpha)
     alpha_range = np.linspace(0, max(max(alphas_nr), max(alphas_r), 6), 100)
@@ -310,7 +307,6 @@ def plot_lander_waterman_sweep(genome_len, read_len, sweep_data_nr, sweep_data_r
     # Panel 1: No Repeats
     ax1.plot(alpha_range, theory_y, '--', color='gray', label=r"Theory: $(G/L) \alpha e^{-\alpha}$")
     ax1.stem(alphas_nr, contigs_nr, linefmt='lightblue', markerfmt='C0o', basefmt=" ", label="Empirical (No repeats)")
-    ax1.errorbar(alphas_nr, contigs_nr, yerr=ci_nr, fmt='none', ecolor='C0', capsize=3, zorder=2, label="95% CI")
     # Overlay larger dots for better visibility
     ax1.scatter(alphas_nr, contigs_nr, color='C0', s=50, zorder=3)
     ax1.set_title("Lander-Waterman sweep — No repeats", fontweight='bold')
@@ -330,7 +326,6 @@ def plot_lander_waterman_sweep(genome_len, read_len, sweep_data_nr, sweep_data_r
     # Panel 2: With Repeats
     ax2.plot(alpha_range, theory_y, '--', color='gray', label=r"Theory: $(G/L) \alpha e^{-\alpha}$")
     ax2.stem(alphas_r, contigs_r, linefmt='mistyrose', markerfmt='C3o', basefmt=" ", label="Empirical (With repeats)")
-    ax2.errorbar(alphas_r, contigs_r, yerr=ci_r, fmt='none', ecolor='C3', capsize=3, zorder=2, label="95% CI")
     # Overlay larger dots for better visibility
     ax2.scatter(alphas_r, contigs_r, color='C3', s=50, zorder=3)
     ax2.set_title("Lander-Waterman sweep — With repeats", fontweight='bold')
