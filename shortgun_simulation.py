@@ -2,7 +2,6 @@ import random
 import os
 import pysam
 import matplotlib.pyplot as plt
-from overlap import build_overlap_graph, draw_graph
 from alignment_visualization import (
     visualize_alignment, get_contigs, get_coverage, 
     plot_contigs, create_alignment_bam, plot_lander_waterman_sweep
@@ -191,11 +190,13 @@ def run_alignment_comparison():
     print("\n>>> Scenario 1: Human Mitochondrial Genome Assembly <<<")
     G = 16569
     L_min, L_max = 100, 150
+    L_mean = (L_min + L_max) / 2
+    L_std = np.std([L_min, L_max])
     N = 2500  # ~18x coverage to balance visibility and assembly quality
     
     # 1. Non-repeat genome
     genome_nr = generate_genome(G)
-    reads_nr = generate_reads(genome_nr, N, L_min, L_max)
+    reads_nr = generate_reads(genome_nr, N, L_mean, L_std)
     visualize_alignment(genome_nr, reads_nr, "alignment_nr_scenario1.png")
     display_simulation_results("S1: Non-Repeat Alignment (mtDNA size)", genome_nr, reads_nr, 
                                "temp_s1_nr.bam", "contigs_s1_nr.png")
@@ -209,7 +210,7 @@ def run_alignment_comparison():
         ("UNIQUE", 0.92)    # ~92% Unique coding sequences
     ]
     genome_r = generate_genome_with_repeats(G, snp_rate=0.01, repeat_sizes=repeat_sizes, weights=weights_r)
-    reads_r = generate_reads(genome_r, N, L_min, L_max)
+    reads_r = generate_reads(genome_r, N, L_mean, L_std)
     visualize_alignment(genome_r, reads_r, "alignment_r_scenario1.png")
     display_simulation_results("S1: Realistic mtDNA Assembly", genome_r, reads_r, 
                                "temp_s1_r.bam", "contigs_s1_r.png")
@@ -228,7 +229,7 @@ def run_assembly_comparison():
     
     # 1. Non-repeat genome
     genome_nr = generate_genome(G)
-    reads_nr = generate_reads(genome_nr, N, L_min, L_max)
+    reads_nr = generate_reads(genome_nr, N, L_mean, L_std)
     visualize_alignment(genome_nr, reads_nr, "alignment_nr_scenario2.png")
     display_simulation_results("S2: Non-Repeat Assembly", genome_nr, reads_nr, 
                                "temp_s2_nr.bam", "contigs_s2_nr.png")
@@ -243,7 +244,7 @@ def run_assembly_comparison():
         ("UNIQUE", 0.55)
     ]
     genome_r = generate_genome_with_repeats(G, snp_rate=0.005, repeat_sizes=repeat_sizes, weights=weights_r)
-    reads_r = generate_reads(genome_r, N, L_min, L_max)
+    reads_r = generate_reads(genome_r, N, L_mean, L_std)
     visualize_alignment(genome_r, reads_r, "alignment_r_scenario2.png")
     display_simulation_results("S2: Repeat Assembly (Fragmentation focused)", genome_r, reads_r, 
                                "temp_s2_r.bam", "contigs_s2_r.png")
@@ -256,7 +257,6 @@ def run_lander_waterman_sweep(genome_r, output_png, label, num_trials=10):
     """
     print(f"\n>>> Running Lander-Waterman Sweep Comparison: {label} ({num_trials} trials) <<<")
     G = len(genome_r)
-    # L = 100
     L_min, L_max = 50, 100
     L_mean = (L_min + L_max) / 2
     alpha_values = [0.2, 0.5, 0.8, 1.2, 1.5, 1.8, 2.2, 2.6, 3.0, 3.25, 3.6, 4.0, 4.4, 4.8, 5.2, 5.6, 6.0]
@@ -328,7 +328,6 @@ def run_read_length_sweep(genome_r, target_coverage, output_png, label, num_tria
     
     for L_min, L_max in length_ranges:
         L_mean = (L_min + L_max) / 2
-        # Calculate N to maintain constant coverage
         N = int((target_coverage * G) / L_mean)
         
         trial_counts = []
@@ -384,18 +383,18 @@ def run_read_length_sweep(genome_r, target_coverage, output_png, label, num_tria
 
 def main():
     """Executes the comparison scenarios and the sweeps."""
-    # run_alignment_comparison()
+    run_alignment_comparison()
     # 1. Sweep for Scenario 1 (Realistic Human mtDNA)
-    # G_s1 = 16569
-    # repeat_sizes_s1 = {"HVR": 150}
-    # weights_s1 = [("HVR", 0.03), ("TANDEM", 0.05), ("UNIQUE", 0.92)]
-    # genome_s1 = generate_genome_with_repeats(G_s1, snp_rate=0.01, repeat_sizes=repeat_sizes_s1, weights=weights_s1)
-    # run_lander_waterman_sweep(genome_s1, "lander_waterman_sweep_s1.png", "Scenario 1 (Human mtDNA)", num_trials=3)
+    G_s1 = 16569
+    repeat_sizes_s1 = {"HVR": 150}
+    weights_s1 = [("HVR", 0.03), ("TANDEM", 0.05), ("UNIQUE", 0.92)]
+    genome_s1 = generate_genome_with_repeats(G_s1, snp_rate=0.01, repeat_sizes=repeat_sizes_s1, weights=weights_s1)
+    run_lander_waterman_sweep(genome_s1, "lander_waterman_sweep_s1.png", "Scenario 1 (Human mtDNA)", num_trials=3)
     
-    # run_assembly_comparison()
+    run_assembly_comparison()
     
     
-    # # 2. Sweep for Scenario 2 (Human Nuclear Genome)
+    # 2. Sweep for Scenario 2 (Human Nuclear Genome)
     G_s2 = 4000
     repeat_sizes_s2 = {"LINE": 1000, "SINE": 300, "LTR": 500, "DNA": 300}
     weights_s2 = [
@@ -403,9 +402,9 @@ def main():
         ("DNA", 0.03), ("UNIQUE", 0.55)
     ]
     genome_s2 = generate_genome_with_repeats(G_s2, snp_rate=0.005, repeat_sizes=repeat_sizes_s2, weights=weights_s2)
-    # run_lander_waterman_sweep(genome_s2, "lander_waterman_sweep_s2.png", "Scenario 2 (Human Nuclear)", num_trials=5)
+    run_lander_waterman_sweep(genome_s2, "lander_waterman_sweep_s2.png", "Scenario 2 (Human Nuclear)", num_trials=5)
     
-    # # 3. Read Length Sweep Analysis (Scenario 2 Extension)
+    # 3. Read Length Sweep Analysis (Scenario 2 Extension)
     run_read_length_sweep(genome_s2, target_coverage=11.25, output_png="read_length_sweep_s2.png", label="Scenario 2 Length Impact", num_trials=5)
 
 
